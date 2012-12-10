@@ -76,11 +76,16 @@ class MyDLPFilter(LoggingMixIn, Operations):
             if active_file.changed:
                 retval = os.fsync(active_file.cfh)
                 try:
-                    shutil.copy2(active_file.cpath, active_file.path)
+                    text = open(active_file.cpath, "r").read()
+                    if text.find("block") != -1 :
+                        print "block flush"
+                        retval = -EACCES
+                    else:
+                        shutil.copy2(active_file.cpath, active_file.path)
+                        print "flush changed; " + active_file.to_string()
                 except (IOError, os.error) as why:
                     errors.append((active_file.cpath, active_file.cpath, str(why)))
                     print "here"
-                print "flush changed; " + active_file.to_string()
                 active_file.changed = False
                 return retval
             else:
@@ -98,15 +103,21 @@ class MyDLPFilter(LoggingMixIn, Operations):
             if active_file.changed:
                 retval = os.fsync(active_file.cfh)
                 try:
-                    shutil.copy2(active_file.cpath, active_file.path)
+                    text = open(active_file.cpath, "r").read()
+                    if text.find("block") != -1:
+                        print "block sync"
+                        retval = -EACCES
+                    else:
+                        shutil.copy2(active_file.cpath, active_file.path)
+                        print "fsync changed: " + active_file.to_string()
                 except (IOError, os.error) as why:
                     print "here"
                     errors.append((active_file.cpath, active_file.cpath, str(why)))
-                print "fsync changed: " + active_file.to_string()
                 active_file.changed = False
+                return retval
             else:
                 print "fsync unchanged; " + active_file.to_string()
-                retval = os.fsync(active_file.fh)
+                return os.fsync(active_file.fh)
         else:
             print "fsync error EBADF fh:", active_file.fh  
             return -EBADF
@@ -175,7 +186,6 @@ class MyDLPFilter(LoggingMixIn, Operations):
         return os.symlink(source, target)
 
     def truncate(self, path, length, fh=None):
-        print "truncate: fh" + fh
         with open(path, 'r+') as f:
             f.truncate(length)
 
