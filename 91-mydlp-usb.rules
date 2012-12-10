@@ -1,0 +1,1 @@
+SUBSYSTEMS=="usb", KERNEL=="sd??", ACTION=="add", RUN+="/home/ozgur/usbtest.sh %k"
