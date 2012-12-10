@@ -1,0 +1,5 @@
+filterfs
+========
+Fuse based transparent filtering file system for linux and mac
+
+See https://github.com/terencehonles/fusepy for official fuse.py project 
