@@ -9,6 +9,7 @@ from os.path import realpath
 from sys import argv, exit, stdin
 from threading import Lock, Thread
 import shutil
+from socket import socket
 
 import os
 
@@ -36,6 +37,56 @@ class ActiveFile():
                 " fh:" + str(self.fh) + " cfh:" + str(self.cfh) +
                 " changed :" + str(self.changed))
 
+class SeapClient():
+
+    def __init__(self, server, port):
+        self.server = server
+        self.port = port
+        self.sock = socket()
+        self.sock.connect((server, port))
+
+    def allow_write_by_path(self, path, userpath, context):
+        uid, guid, pid = context
+        self.sock.sendall("BEGIN\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        opid = response.split()[1]
+        self.sock.sendall("SETPROP " + opid + " filename=" + userpath + "\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        self.sock.sendall("SETPROP " + opid + " burn_after_reading=true\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        p = os.popen("getent passwd  |awk -v val=" + str(uid) + 
+                     " -F \":\" '$3==val{print $1}'")
+        username = p.readline()
+        p.close()
+        self.sock.sendall("SETPROP " + opid + " user=" + username + "\n")
+        if not response.startswith("OK"):
+            return True
+        self.sock.sendall("PUSHFILE " + opid + " " + path + "\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        self.sock.sendall("END " + opid + "\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        self.sock.sendall("ACLQ " + opid + "\n")
+        response = self.sock.recv(1024).strip()
+        if not response.startswith("OK"):
+            return True
+        
+        self.sock.sendall("DESTROY " + opid + "\n")
+        self.sock.recv(1024).strip()
+        
+        if response.split()[1] == "block":
+            return False
+        else:
+            return True
 
 class MyDLPFilter(LoggingMixIn, Operations):
 
@@ -43,6 +94,7 @@ class MyDLPFilter(LoggingMixIn, Operations):
         self.root = realpath(root)
         self.rwlock = Lock()
         self.files = {}
+        self.seap =  SeapClient("127.0.0.1" , 8000)
 
     def __call__(self, op, path, *args):
         return super(MyDLPFilter, self).__call__(op, self.root + path, *args)
@@ -77,7 +129,9 @@ class MyDLPFilter(LoggingMixIn, Operations):
                 retval = os.fsync(active_file.cfh)
                 try:
                     text = open(active_file.cpath, "r").read()
-                    if text.find("block") != -1 :
+                    if not self.seap.allow_write_by_path(active_file.cpath,
+                                                         active_file.path, context):
+                    #if text.find("block") != -1 :
                         print "block flush"
                         retval = -EACCES
                     else:
@@ -104,7 +158,9 @@ class MyDLPFilter(LoggingMixIn, Operations):
                 retval = os.fsync(active_file.cfh)
                 try:
                     text = open(active_file.cpath, "r").read()
-                    if text.find("block") != -1:
+                    if not self.seap.allow_write_by_path(active_file.cpath,
+                                                         active_file.path, context):
+                    #if text.find("block") != -1:
                         print "block sync"
                         retval = -EACCES
                     else:
